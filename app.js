@@ -27,6 +27,86 @@ function hm(m){return Math.floor(m/60)+"시간"+(m%60?(" "+m%60+"분"):"")}
 function f1(n){return Number(n).toFixed(1)}
 function sgn(n){return (n>0?"+":(n<0?"−":""))+Math.abs(n)}
 function accessNote(){return DS.id==="seoul"?"(추정)":"(직선거리 기반 개략 추정)"}
+// ---- 대중교통 실측(ODsay) ----
+var ACC={},accBusy=false;
+try{ACC=JSON.parse(JSON.stringify(window.ACCESS_DATA||{}))}catch(e){ACC={}}
+try{var _st=JSON.parse(localStorage.getItem("dulle_access_v1")||"{}");for(var _k in _st)ACC[_k]=_st[_k];}catch(e){}
+function saveAcc(){try{localStorage.setItem("dulle_access_v1",JSON.stringify(ACC))}catch(e){}}
+function r4(x){return Math.round(x*10000)/10000}
+function rk(a,b){return r4(a[0])+","+r4(a[1])+">"+r4(b[0])+","+r4(b[1])}
+function legs(c){
+  var s=startPos(c.no),e=endPos(c.no);
+  var l0=(s&&base&&dist(base,s)>150)?[base,s]:null, l1=(e&&base&&dist(base,e)>150)?[e,base]:null;
+  return [l0,l1];
+}
+function legInfo(c,i){var l=legs(c)[i];return l?(ACC[rk(l[0],l[1])]||null):null}
+function accOf(c){
+  var L=legs(c),m=c.accessMin.slice(),real=[false,false],r=[legInfo(c,0),legInfo(c,1)];
+  for(var i=0;i<2;i++){
+    if(!L[i]){m[i]=0;real[i]=true;continue;}
+    if(r[i]&&r[i].t!=null){m[i]=r[i].t;real[i]=true;}
+    else if(r[i]&&r[i].err==="near"){m[i]=Math.min(m[i],10);real[i]=true;}
+  }
+  return {m:m,real:real,r:r};
+}
+function accLabel(o){var n=(o.real[0]?1:0)+(o.real[1]?1:0);return n===2?"대중교통 실측":(n===1?"일부 실측":"개략 추정")}
+function legText(c,i){
+  var L=legs(c),r=legInfo(c,i),est=c.accessMin[i];
+  if(!L[i]) return "0분 (수서역과 같은 위치)";
+  if(r&&r.t!=null) return "<b>실측 "+r.t+"분</b>"+(r.tr!=null?" · 환승 "+r.tr+"회":"")+(r.pay?" · "+Number(r.pay).toLocaleString()+"원":"")+(r.sum?" · "+r.sum:"")+' <span class="why">(개략 추정 '+est+"분 → 차이 "+sgn(r.t-est)+"분"+(r.ts?" · 조회 "+r.ts.slice(0,16).replace("T"," "):"")+")</span>";
+  if(r&&r.err==="near") return "출발·도착이 500m 이내 — 도보 가능";
+  if(r&&r.err==="none") return '<b>대중교통 경로 없음</b> — 택시·자가용 필요 <span class="why">(ODsay 조회 결과)</span>';
+  if(r&&r.err==="api") return "조회 실패: "+(r.msg||r.code||"원인 미상");
+  return "미확인 · 개략 추정 "+est+'분 <span class="why">(길찾기 API 확인 전)</span>';
+}
+function odsayCall(from,to){
+  var key=window.ODSAY_API_KEY;
+  var url="https://api.odsay.com/v1/api/searchPubTransPathT?SX="+from[1]+"&SY="+from[0]+"&EX="+to[1]+"&EY="+to[0]+"&OPT=0&SearchType=0&apiKey="+encodeURIComponent(key);
+  return fetch(url).then(function(r){return r.json()}).then(function(j){
+    if(j.error){
+      var e=j.error,e0=Array.isArray(e)?e[0]:e,code=String((e0&&(e0.code))||""),msg=(e0&&(e0.msg||e0.message))||"";
+      if(code==="-98") return {err:"near"};
+      if(code==="-99"||code==="-9"||code==="-3") return {err:"none"};
+      return {err:"api",code:code,msg:msg};
+    }
+    var p=(j.result&&j.result.path)||[];
+    if(!p.length) return {err:"none"};
+    var best=p.reduce(function(a,b){return b.info.totalTime<a.info.totalTime?b:a});
+    var i=best.info,rides=(i.busTransitCount||0)+(i.subwayTransitCount||0);
+    var names=[];(best.subPath||[]).forEach(function(sp){
+      if(sp.trafficType===1&&sp.lane&&sp.lane[0]) names.push(sp.lane[0].name);
+      else if(sp.trafficType===2&&sp.lane&&sp.lane[0]) names.push((sp.lane[0].busNo||"버스")+"번");
+    });
+    return {t:i.totalTime,tr:Math.max(0,rides-1),pay:i.payment,walk:i.totalWalk,sum:names.join(" → "),ts:new Date().toISOString()};
+  });
+}
+function setAccMsg(t){var el=document.getElementById("accmsg");if(el)el.innerHTML=t||""}
+function runLegs(list,force){
+  if(accBusy) return;
+  if(!window.ODSAY_API_KEY){setAccMsg("ODsay 키가 설정되지 않았습니다. config.js의 ODSAY_API_KEY에 키를 넣으면 대중교통 실측이 가능합니다.");return;}
+  var tasks=[];
+  list.forEach(function(c){legs(c).forEach(function(l){if(!l)return;var k=rk(l[0],l[1]);var cached=ACC[k];
+    if(force||!cached||cached.err==="api"||(cached.ts&&Date.now()-Date.parse(cached.ts)>86400000)) tasks.push([k,l]);});});
+  var seen={};tasks=tasks.filter(function(t){if(seen[t[0]])return false;seen[t[0]]=1;return true});
+  if(!tasks.length){setAccMsg("이미 조회한 구간입니다(24시간 이내). 다시 조회하려면 코스 상세의 확인 버튼을 누르세요.");return;}
+  accBusy=true;var i=0,fail=0;
+  (function next(){
+    if(i>=tasks.length){accBusy=false;saveAcc();setAccMsg("길찾기 확인 완료 "+tasks.length+"구간"+(fail?" · 실패 "+fail:"")+" (ODsay · 조회 시각 기준 시간표)");renderAll();return;}
+    setAccMsg("ODsay 길찾기 조회 중 "+(i+1)+"/"+tasks.length+" …");
+    var t=tasks[i++];
+    odsayCall(t[1][0],t[1][1]).then(function(res){
+      ACC[t[0]]=res;
+      if(res.err==="api"&&/key|auth|인증|권한|ApiKey/i.test((res.msg||"")+(res.code||""))){accBusy=false;saveAcc();setAccMsg("키 인증 실패: "+(res.msg||res.code)+" — ODsay 콘솔에서 키와 허용 URL(https://yjjn2005.github.io)을 확인하세요.");renderAll();return;}
+      if(res.err==="api") fail++;
+      setTimeout(next,250);
+    }).catch(function(){
+      ACC[t[0]]={err:"api",msg:"네트워크·CORS 오류"};fail++;
+      if(fail>=3){accBusy=false;saveAcc();setAccMsg("조회 실패가 반복됩니다 — 네트워크 또는 ODsay 허용 URL 설정을 확인하세요.");renderAll();return;}
+      setTimeout(next,250);
+    });
+  })();
+}
+
 function flagSvg(color,big){
   var w=big?34:26,h=big?44:34;
   var s='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'" viewBox="0 0 26 34"><rect x="3" y="2" width="2.6" height="31" rx="1" fill="#333"/><path d="M5.6 3 L23 8.5 L5.6 15 Z" fill="'+color+'" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
@@ -80,17 +160,21 @@ function noticeHtml(c){
 function renderDetail(){
   var el=document.getElementById("detail");
   if(!DS||!sel){el.style.display="none";el.innerHTML="";return;}
-  var c=course(sel),a=c.accessMin,tot=a[0]+a[1]+c.min,k=cmp(c),sd=DS.id==="gyeonggi"?c.dist:null;
+  var c=course(sel),o=accOf(c),a=o.m,tot=a[0]+a[1]+c.min,k=cmp(c),sd=DS.id==="gyeonggi"?c.dist:null;
   el.style.display="block";
   var over=c.km>20?'<span class="why">⚠ 코스 '+c.km+'km — 하루 상한 20km 초과: 구간 분할 또는 숙박형으로 나눠야 합니다.</span>':"코스 "+c.km+"km로 하루 상한 20km 이내";
   el.innerHTML='<div class="dt"><span class="dot" style="background:'+col(c.no)+'">'+c.no+'</span> '+c.no+'코스 '+c.name+' <span class="tag">'+c.level+'</span> <span class="x" id="dclose">닫기 ✕</span></div>'+
    '<ol class="route">'+
-   '<li><b>수서역 출발</b> → '+c.start+' 도착 <span class="m">약 '+a[0]+'분'+accessNote()+(sd?" · 직선 "+sd[0]+"km":"")+'</span></li>'+
+   '<li><b>수서역 출발</b> → '+c.start+' 도착 <span class="m">약 '+a[0]+'분 ('+(o.real[0]?"실측":"개략 추정")+')'+(sd?" · 직선 "+sd[0]+"km":"")+'</span></li>'+
    '<li><b>'+c.no+'코스 출발</b> '+c.start+' → <b>'+c.no+'코스 도착</b> '+c.end+' <span class="m">'+c.km+'km · 걷기 '+hm(c.min)+'</span></li>'+
-   '<li>'+c.end+' 출발 → <b>수서역 도착</b> <span class="m">약 '+a[1]+'분'+accessNote()+(sd?" · 직선 "+sd[1]+"km":"")+'</span></li></ol>'+
+   '<li>'+c.end+' 출발 → <b>수서역 도착</b> <span class="m">약 '+a[1]+'분 ('+(o.real[1]?"실측":"개략 추정")+')'+(sd?" · 직선 "+sd[1]+"km":"")+'</span></li></ol>'+
    '<div class="sum">하루 합계 약 '+hm(tot)+' (이동 '+(a[0]+a[1])+'분 + 걷기 '+hm(c.min)+') · '+over+'</div>'+
+   '<div class="cmpbox est"><b>대중교통 이동시간 (ODsay 길찾기)</b><br>수서역 → 출발: '+legText(c,0)+'<br>도착 → 수서역: '+legText(c,1)+
+   '<br><button class="chip" id="accone" style="margin-top:6px">이 코스 길찾기 API로 확인</button>'+
+   '<div class="why">ODsay 결과는 조회한 시각의 시간표 기준이라 요일·시간대에 따라 달라질 수 있습니다. 대중교통 경로가 없으면 택시·자가용 이동이 필요합니다.</div></div>'+
    '<div class="cmpbox '+k.cls+'"><b>거리 대조 · '+k.badge+'</b><br>'+k.text+(k.why?'<br><span class="why">'+k.why+'</span>':'')+'</div>'+noticeHtml(c);
   document.getElementById("dclose").onclick=function(){sel=null;renderAll();};
+  var ob=document.getElementById("accone");if(ob)ob.onclick=function(){runLegs([c],true)};
 }
 function renderList(){
   var el=document.getElementById("list");el.innerHTML="";
@@ -108,7 +192,7 @@ function renderList(){
     d.innerHTML='<div class="num" style="background:'+col(c.no)+'">'+(done[c.no]?"✓":c.no)+'</div><div class="info"><div class="nm">'+c.no+'코스 '+c.name+' <span class="tag">'+c.level+'</span></div>'+
       '<div class="sub"><b>출발</b> '+c.start+' → <b>도착</b> '+c.end+'</div><div class="sub">공식 '+f1(c.km)+'km · 걷기 '+hm(c.min)+'</div>'+
       '<div class="cmpline '+k.cls+'">'+k.text+'</div>'+
-      '<div class="sub">수서역→출발 약 '+c.accessMin[0]+'분 · 도착→수서역 약 '+c.accessMin[1]+'분 '+accessNote()+'</div>'+
+      '<div class="sub">수서역→출발 약 '+accOf(c).m[0]+'분 · 도착→수서역 약 '+accOf(c).m[1]+'분 ('+accLabel(accOf(c))+')</div>'+
       '<div style="margin-top:4px"><span class="tag '+k.cls+'">'+k.badge+'</span> '+extra+'</div></div>';
     d.querySelector(".info").onclick=function(){selectCourse(c.no)};
     d.querySelector(".num").onclick=function(){selectCourse(c.no)};
@@ -216,10 +300,10 @@ function drawLabels(){
     lr.setMap(map);labels.push(lr);
   }
   if(sel&&base){
-    var c=course(sel),a=c.accessMin,s=startPos(sel),e=endPos(sel),nt=DS.id==="seoul"?"추정":"개략 추정";
+    var c=course(sel),oo=accOf(c),a=oo.m,s=startPos(sel),e=endPos(sel);
     function mid(p,q){return [(p[0]+q[0])/2,(p[1]+q[1])/2]}
-    if(s&&dist(base,s)>150){var l1=new Label(mid(base,s),'<div class="bl">수서역 → '+c.no+'코스 출발<br>약 '+a[0]+'분('+nt+'·직선 표시)</div>',DS.color(c),0,true);l1.setMap(map);labels.push(l1);}
-    if(e&&dist(base,e)>150){var l2=new Label(mid(base,e),'<div class="bl">'+c.no+'코스 도착 → 수서역<br>약 '+a[1]+'분('+nt+'·직선 표시)</div>',DS.color(c),0,true);l2.setMap(map);labels.push(l2);}
+    if(s&&dist(base,s)>150){var l1=new Label(mid(base,s),'<div class="bl">수서역 → '+c.no+'코스 출발<br>약 '+a[0]+'분('+(oo.real[0]?"실측":"추정")+'·직선 표시)</div>',DS.color(c),0,true);l1.setMap(map);labels.push(l1);}
+    if(e&&dist(base,e)>150){var l2=new Label(mid(base,e),'<div class="bl">'+c.no+'코스 도착 → 수서역<br>약 '+a[1]+'분('+(oo.real[1]?"실측":"추정")+'·직선 표시)</div>',DS.color(c),0,true);l2.setMap(map);labels.push(l2);}
   }
 }
 function fit(points){
@@ -278,6 +362,7 @@ function loadMaps(){
   s.onerror=function(){document.getElementById("maperr").textContent="구글맵 스크립트를 불러오지 못했습니다(네트워크 확인).";};
   document.head.appendChild(s);
 }
+document.getElementById("accbtn").onclick=function(){if(!DS)return;runLegs(courses().filter(visible),false)};
 document.getElementById("cmpbtn").onclick=function(){showCmp=!showCmp;renderCompare();if(showCmp)document.getElementById("sheet").scrollTop=0;};
 setRegion("서울");
 loadMaps();
