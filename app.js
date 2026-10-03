@@ -1,85 +1,115 @@
 (function(){
-var T=window.TRAIL_DATA;
-// 코스별 고유 색상(인접 코스끼리 구분되도록 배치)
+var SEOUL=window.TRAIL_DATA, GG=window.GG_DATA;
 var PAL=["#e6194b","#2e9e5b","#4363d8","#f58231","#911eb4","#008b8b","#9a6324","#d81b9b","#8b0000","#6b8e23","#1f3a93","#e08a00","#00a3a3","#7b1fa2","#c2185b","#2e7d32","#5d4037","#0277bd","#ef6c00","#6a1b9a","#455a64"];
-function col(no){return PAL[(no-1)%PAL.length]}
-var map,lines=[],flagMarkers=[],labels=[],info,sel=null,filter="전체",done={},Label=null,base=null;
-var NEAR=[7,8,9,10];
-try{done=JSON.parse(localStorage.getItem("dulle_done")||"{}")}catch(e){done={}}
-function save(){try{localStorage.setItem("dulle_done",JSON.stringify(done))}catch(e){}}
-function is23(no){return no===2||no===3}
-function course(no){return T.courses.filter(function(x){return x.no===no})[0]}
+var GGCOL={"경기 평화누리길":["#1565c0","#5aa9e6"],"경기 숲길":["#2e7d32","#7cb342"],"경기 물길":["#00838f","#26c6da"],"경기 갯길":["#d84315","#ffa726"]};
+function sCol(c){return PAL[(c.no-1)%PAL.length]}
+function gCol(c){var p=GGCOL[c.dstrct]||["#555","#999"];return p[c.no%2]}
+var REGIONS=[["서울",{c:[37.55,126.99],z:11}],["경기",{c:[37.55,127.2],z:9}],["인천",{c:[37.47,126.65],z:10}],["강원",{c:[37.8,128.3],z:8}],["충청",{c:[36.55,127.3],z:8}],["경상",{c:[36.0,128.8],z:8}],["전라",{c:[35.3,127.0],z:8}],["제주",{c:[33.38,126.55],z:10}],["울릉도",{c:[37.50,130.87],z:11}]];
+var DSET={};
+if(SEOUL) DSET["서울"]={id:"seoul",title:"서울둘레길",d:SEOUL,color:sCol,minZ:0,
+  chips:[["전체",function(){return true}],["수서역 근처",function(c){return [7,8,9,10].indexOf(c.no)>=0}],["초급",function(c){return c.level==="초급"}],["중급",function(c){return c.level==="중급"}],["상급",function(c){return c.level==="상급"}]],
+  legend:'<span><b class="ln"></b> 실선: 지도 경로</span><span><b class="ln dash"></b> 색 점선: 근사선(14코스)</span><span><b class="ln dash gr"></b> 회색 점선: 2·3코스 구 노선 참고선(실제 아님)</span>',
+  foot:"모든 일정은 수서역 출발·귀환 기준. 경로: OpenStreetMap 기여자(ODbL) · 거리·난이도: 서울둘레길 누리집·숲나들e · 수서역 이동시간은 지하철 노선 기준 추정치(±15분), 지도의 수서역 연결선은 직선 표시(실제 경로 아님).<br>2·3코스는 개별 경로 없이 구 노선 기준 통합 참고선만 표시(새 노선과 다름). 14코스는 안양천 중심선과 한강변을 이은 근사선. 근사 표시: 상계동 나들이철쭉동산(2·3코스 경계)은 공식 거리 비율로 추정한 위치."};
+if(GG) DSET["경기"]={id:"gyeonggi",title:"경기둘레길",d:GG,color:gCol,minZ:10,
+  chips:[["전체",function(){return true}],["수서역 근처(직선 40km 이내)",function(c){return Math.min(c.dist[0],c.dist[1])<=40}],["하루 20km 이내",function(c){return c.km<=20}],["쉬움 이하",function(c){return c.level==="매우쉬움"||c.level==="쉬움"}],["보통",function(c){return c.level==="보통"}],["어려움 이상",function(c){return c.level==="어려움"||c.level==="매우어려움"}],["평화누리길",function(c){return c.dstrct==="경기 평화누리길"}],["숲길",function(c){return c.dstrct==="경기 숲길"}],["물길",function(c){return c.dstrct==="경기 물길"}],["갯길",function(c){return c.dstrct==="경기 갯길"}]],
+  legend:'<span><b class="ln" style="border-top-color:#1565c0"></b> 평화누리길</span><span><b class="ln" style="border-top-color:#2e7d32"></b> 숲길</span><span><b class="ln" style="border-top-color:#00838f"></b> 물길</span><span><b class="ln" style="border-top-color:#d84315"></b> 갯길</span><span>(진한색·연한색 번갈아 코스 구분)</span>',
+  foot:"모든 일정은 수서역 출발·귀환 기준. 경로·거리·시간·난이도: 경기둘레길 누리집(ggtour.or.kr, 2026-10-04 확인). 공식 코스 합계 835.8km(누리집 목록 합산, 기사에 나온 860km와 다름). 수서역 이동시간은 직선거리 기반 개략 추정치라 실제와 크게 다를 수 있고, 연결선은 직선 표시입니다.<br>37코스는 공식 좌표가 역방향이라 방향을 뒤집었습니다. 우회·통제 공지가 있는 코스는 표시된 노선에 우회가 반영되지 않았을 수 있으니 출발 전 누리집 공지를 확인하세요."};
+var region="서울",DS=null,map,lines=[],flagMarkers=[],labels=[],info,sel=null,filterIdx=0,done={},Label=null,base=null,showCmp=false,TH=7;
+function dkey(){return DS&&DS.id==="seoul"?"dulle_done":"dulle_done_"+(DS?DS.id:"x")}
+function loadDone(){try{done=JSON.parse(localStorage.getItem(dkey())||"{}")}catch(e){done={}}}
+function save(){try{localStorage.setItem(dkey(),JSON.stringify(done))}catch(e){}}
+function courses(){return DS?DS.d.courses:[]}
+function flags(){return DS?DS.d.flags:[]}
+function course(no){return courses().filter(function(x){return x.no===no})[0]}
+function col(no){var c=course(no);return c?DS.color(c):"#555"}
+function is23(no){return DS&&DS.id==="seoul"&&(no===2||no===3)}
 function hm(m){return Math.floor(m/60)+"시간"+(m%60?(" "+m%60+"분"):"")}
+function f1(n){return Number(n).toFixed(1)}
+function sgn(n){return (n>0?"+":(n<0?"−":""))+Math.abs(n)}
+function accessNote(){return DS.id==="seoul"?"(추정)":"(직선거리 기반 개략 추정)"}
 function flagSvg(color,big){
   var w=big?34:26,h=big?44:34;
   var s='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'" viewBox="0 0 26 34"><rect x="3" y="2" width="2.6" height="31" rx="1" fill="#333"/><path d="M5.6 3 L23 8.5 L5.6 15 Z" fill="'+color+'" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
   return {url:"data:image/svg+xml;charset=UTF-8,"+encodeURIComponent(s),scaledSize:new google.maps.Size(w,h),anchor:new google.maps.Point(4,h-1)};
 }
-var TH=7; // 일치 판정 기준(±%)
-function f1(n){return Number(n).toFixed(1)}
-function sgn(n){return (n>0?"+":(n<0?"−":""))+Math.abs(n)}
 function cmp(c){
-  if(is23(c.no)&&T.combined23){
-    var b=T.combined23,d=+(b.osmKm-b.officialKm).toFixed(1),p=Math.round(d/b.officialKm*100);
-    return {kind:"mismatch",cls:"warn",off:b.officialKm,map:b.osmKm,diff:d,pct:p,scope:"2·3코스 합산",
-      badge:"노선 불일치 · 참고선만 표시",
-      text:"공식 2코스+3코스 합 "+f1(b.officialKm)+"km  vs  지도(구 노선) "+f1(b.osmKm)+"km  →  차이 "+sgn(d)+"km ("+sgn(p)+"%)",
+  var cb=DS.d.combined23;
+  if(is23(c.no)&&cb){
+    var d=+(cb.osmKm-cb.officialKm).toFixed(1),p=Math.round(d/cb.officialKm*100);
+    return {kind:"mismatch",cls:"warn",off:cb.officialKm,map:cb.osmKm,diff:d,pct:p,badge:"노선 불일치 · 참고선만 표시",
+      text:"공식 2코스+3코스 합 "+f1(cb.officialKm)+"km  vs  지도(구 노선) "+f1(cb.osmKm)+"km  →  차이 "+sgn(d)+"km ("+sgn(p)+"%)",
       why:"지도 자료가 서울둘레길 개편(2024년) 이전 노선이라 새 2·3코스와 노선이 다른 것으로 추정됩니다(원인 미확인). 회색 점선은 위치 참고용이며 실제 코스가 아닙니다."};
   }
-  if(c.osmKm==null) return {kind:"none",cls:"warn",badge:"지도 경로 없음",text:"공식 "+c.km+"km · 지도 경로 자료 준비 중",why:""};
+  if(c.osmKm==null) return {kind:"none",cls:"warn",badge:"지도 경로 없음",text:"공식 "+f1(c.km)+"km · 지도 경로 자료 준비 중",why:""};
   var d2=+(c.osmKm-c.km).toFixed(1),p2=Math.round(d2/c.km*100);
-  if(c.approx) return {kind:"approx",cls:"est",off:c.km,map:c.osmKm,diff:d2,pct:p2,scope:"",badge:"근사선 · 길이만 비교(검증 아님)",
-      text:"공식 "+f1(c.km)+"km  vs  근사선 "+f1(c.osmKm)+"km  →  차이 "+sgn(d2)+"km ("+sgn(p2)+"%)",
-      why:"안양천 중심선을 따라 그린 근사선이라 실제 둘레길 위치·길이와 다를 수 있습니다."};
-  var ok=Math.abs(p2)<=TH;
-  return {kind:ok?"ok":"warn",cls:ok?"ok":"warn",off:c.km,map:c.osmKm,diff:d2,pct:p2,scope:"",
-      badge:ok?"일치 (±"+TH+"% 이내)":"거리 차이 확인필요 (±"+TH+"% 초과)",
-      text:"공식 "+f1(c.km)+"km  vs  지도 "+f1(c.osmKm)+"km  →  차이 "+sgn(d2)+"km ("+sgn(p2)+"%)",
-      why:ok?(c.note?c.note+".":""):"지도 경로가 공식 코스보다 "+(d2<0?"짧습니다(일부 구간 누락 가능).":"깁니다(우회·중복 구간 포함 가능).")+" 원인은 확인하지 못했습니다."};
+  if(c.approx) return {kind:"approx",cls:"est",off:c.km,map:c.osmKm,diff:d2,pct:p2,badge:"근사선 · 길이만 비교(검증 아님)",
+    text:"공식 "+f1(c.km)+"km  vs  근사선 "+f1(c.osmKm)+"km  →  차이 "+sgn(d2)+"km ("+sgn(p2)+"%)",why:"안양천 중심선을 따라 그린 근사선이라 실제 둘레길 위치·길이와 다를 수 있습니다."};
+  var ok=Math.abs(p2)<=TH,src=DS.id==="seoul"?"지도":"노선 좌표";
+  return {kind:ok?"ok":"warn",cls:ok?"ok":"warn",off:c.km,map:c.osmKm,diff:d2,pct:p2,
+    badge:ok?"일치 (±"+TH+"% 이내)":"거리 차이 확인필요 (±"+TH+"% 초과)",
+    text:"공식 "+f1(c.km)+"km  vs  "+src+" "+f1(c.osmKm)+"km  →  차이 "+sgn(d2)+"km ("+sgn(p2)+"%)",
+    why:ok?(c.note?c.note+".":""):src+" 거리가 공식 안내보다 "+(d2<0?"짧습니다(일부 구간 누락·우회 가능).":"깁니다(우회·중복 구간 포함 가능).")+" 원인은 확인하지 못했습니다."};
 }
-function status(c){var k=cmp(c);return {t:k.badge,cls:k.cls}}
-function distText(c){return "공식 "+c.km+"km · 걷기 "+hm(c.min)}
-function visible(c){
-  if(filter==="전체") return true;
-  if(filter==="수서역 근처") return NEAR.indexOf(c.no)>=0;
-  return c.level===filter;
+function visible(c){return DS.chips[filterIdx][1](c)}
+function renderRegions(){
+  var el=document.getElementById("regions");el.innerHTML="";
+  REGIONS.forEach(function(r){
+    var b=document.createElement("button"),has=!!DSET[r[0]];
+    b.className="reg"+(r[0]===region?" on":"")+(has?"":" soon");b.textContent=r[0];
+    b.onclick=function(){setRegion(r[0])};el.appendChild(b);
+  });
 }
 function renderChips(){
   var el=document.getElementById("chips");el.innerHTML="";
-  ["전체","수서역 근처","초급","중급","상급"].forEach(function(n){
-    var b=document.createElement("button");b.className="chip"+(n===filter?" on":"");b.textContent=n;
-    b.onclick=function(){filter=n;sel=null;renderChips();renderAll();};el.appendChild(b);
+  if(!DS){return;}
+  DS.chips.forEach(function(ch,i){
+    var b=document.createElement("button");b.className="chip"+(i===filterIdx?" on":"");b.textContent=ch[0];
+    b.onclick=function(){filterIdx=i;sel=null;renderChips();renderAll();};el.appendChild(b);
   });
 }
 function renderProgress(){
-  var km=0,n=0;T.courses.forEach(function(c){if(done[c.no]){km+=c.km;n++;}});
-  document.getElementById("progress").textContent="완주 "+n+"/21코스 · 누적 "+km.toFixed(1)+" / "+T.officialTotalKm+"km (공식거리 기준, 구간 중복 제외)";
+  var el=document.getElementById("progress");
+  if(!DS){el.textContent="";return;}
+  var km=0,n=0;courses().forEach(function(c){if(done[c.no]){km+=c.km;n++;}});
+  el.textContent=DS.title+" 완주 "+n+"/"+courses().length+"코스 · 누적 "+km.toFixed(1)+" / "+f1(DS.d.officialTotalKm)+"km (공식거리 기준, 구간 중복 제외)";
 }
-// 수서역 기준 하루 동선 요약
+function noticeHtml(c){
+  if(!c.notices||!c.notices.length) return "";
+  return '<div class="cmpbox est"><b>우회·통제 공지 '+c.notices.length+'건</b><br>'+c.notices.map(function(t){return "· "+t}).join("<br>")+'<br><span class="why">표시된 노선에는 우회가 반영되지 않았을 수 있습니다. 출발 전 경기둘레길 누리집 공지를 확인하세요.</span></div>';
+}
 function renderDetail(){
   var el=document.getElementById("detail");
-  if(!sel){el.style.display="none";el.innerHTML="";return;}
-  var c=course(sel),a=c.accessMin,tot=a[0]+a[1]+c.min,k=cmp(c);
+  if(!DS||!sel){el.style.display="none";el.innerHTML="";return;}
+  var c=course(sel),a=c.accessMin,tot=a[0]+a[1]+c.min,k=cmp(c),sd=DS.id==="gyeonggi"?c.dist:null;
   el.style.display="block";
-  el.innerHTML='<div class="dt"><span class="dot" style="background:'+col(c.no)+'">'+c.no+'</span> '+c.name+' <span class="tag">'+c.level+'</span> <span class="x" id="dclose">닫기 ✕</span></div>'+
+  var over=c.km>20?'<span class="why">⚠ 코스 '+c.km+'km — 하루 상한 20km 초과: 구간 분할 또는 숙박형으로 나눠야 합니다.</span>':"코스 "+c.km+"km로 하루 상한 20km 이내";
+  el.innerHTML='<div class="dt"><span class="dot" style="background:'+col(c.no)+'">'+c.no+'</span> '+c.no+'코스 '+c.name+' <span class="tag">'+c.level+'</span> <span class="x" id="dclose">닫기 ✕</span></div>'+
    '<ol class="route">'+
-   '<li><b>수서역 출발</b> → '+c.start+' 도착 <span class="m">약 '+a[0]+'분(추정)</span></li>'+
+   '<li><b>수서역 출발</b> → '+c.start+' 도착 <span class="m">약 '+a[0]+'분'+accessNote()+(sd?" · 직선 "+sd[0]+"km":"")+'</span></li>'+
    '<li><b>'+c.no+'코스 출발</b> '+c.start+' → <b>'+c.no+'코스 도착</b> '+c.end+' <span class="m">'+c.km+'km · 걷기 '+hm(c.min)+'</span></li>'+
-   '<li>'+c.end+' 출발 → <b>수서역 도착</b> <span class="m">약 '+a[1]+'분(추정)</span></li></ol>'+
-   '<div class="sum">하루 합계 약 '+hm(tot)+' (이동 '+(a[0]+a[1])+'분 + 걷기 '+hm(c.min)+') · 코스 '+c.km+'km로 하루 상한 20km 이내</div>'+
-   '<div class="cmpbox '+k.cls+'"><b>거리 대조 · '+k.badge+'</b><br>'+k.text+(k.why?'<br><span class="why">'+k.why+'</span>':'')+'</div>';
+   '<li>'+c.end+' 출발 → <b>수서역 도착</b> <span class="m">약 '+a[1]+'분'+accessNote()+(sd?" · 직선 "+sd[1]+"km":"")+'</span></li></ol>'+
+   '<div class="sum">하루 합계 약 '+hm(tot)+' (이동 '+(a[0]+a[1])+'분 + 걷기 '+hm(c.min)+') · '+over+'</div>'+
+   '<div class="cmpbox '+k.cls+'"><b>거리 대조 · '+k.badge+'</b><br>'+k.text+(k.why?'<br><span class="why">'+k.why+'</span>':'')+'</div>'+noticeHtml(c);
   document.getElementById("dclose").onclick=function(){sel=null;renderAll();};
 }
 function renderList(){
-  var el=document.getElementById("list");el.innerHTML="";var cnt=0;
-  T.courses.forEach(function(c){
+  var el=document.getElementById("list");el.innerHTML="";
+  if(!DS){
+    el.innerHTML='<div class="empty"><b>'+region+'</b> 지역은 자료 준비 중입니다.<br>공식 노선 자료를 확인한 뒤 순차적으로 추가합니다.<br>확인되지 않은 코스를 임의로 채우지 않습니다.</div>';
+    document.getElementById("count").textContent="";return;
+  }
+  var cnt=0;
+  courses().forEach(function(c){
     if(!visible(c)) return; cnt++;
     var k=cmp(c),d=document.createElement("div");d.className="card"+(sel===c.no?" sel":"");
+    var extra="";
+    if(c.km>20) extra+='<span class="tag warn">20km 초과 · 분할 필요</span> ';
+    if(c.notices&&c.notices.length) extra+='<span class="tag est">우회 공지 '+c.notices.length+'건</span> ';
     d.innerHTML='<div class="num" style="background:'+col(c.no)+'">'+(done[c.no]?"✓":c.no)+'</div><div class="info"><div class="nm">'+c.no+'코스 '+c.name+' <span class="tag">'+c.level+'</span></div>'+
-      '<div class="sub"><b>출발</b> '+c.start+' → <b>도착</b> '+c.end+'</div><div class="sub">'+distText(c)+'</div>'+
-      '<div class="cmpline '+k.cls+'">'+(k.scope?k.scope+" · ":"")+k.text+'</div>'+
-      '<div class="sub">수서역→출발 약 '+c.accessMin[0]+'분 · 도착→수서역 약 '+c.accessMin[1]+'분 (추정)</div>'+
-      '<div style="margin-top:4px"><span class="tag '+k.cls+'">'+k.badge+'</span></div></div>';
+      '<div class="sub"><b>출발</b> '+c.start+' → <b>도착</b> '+c.end+'</div><div class="sub">공식 '+f1(c.km)+'km · 걷기 '+hm(c.min)+'</div>'+
+      '<div class="cmpline '+k.cls+'">'+k.text+'</div>'+
+      '<div class="sub">수서역→출발 약 '+c.accessMin[0]+'분 · 도착→수서역 약 '+c.accessMin[1]+'분 '+accessNote()+'</div>'+
+      '<div style="margin-top:4px"><span class="tag '+k.cls+'">'+k.badge+'</span> '+extra+'</div></div>';
     d.querySelector(".info").onclick=function(){selectCourse(c.no)};
     d.querySelector(".num").onclick=function(){selectCourse(c.no)};
     var b=document.createElement("button");b.className="done"+(done[c.no]?" on":"");b.textContent=done[c.no]?"완주":"걸었음";
@@ -88,24 +118,23 @@ function renderList(){
   });
   document.getElementById("count").textContent="("+cnt+"개)";
 }
-// 거리 대조표
-var showCmp=false;
 function renderCompare(){
-  var el=document.getElementById("compare");
-  document.getElementById("cmpbtn").className="chip"+(showCmp?" on":"");
-  if(!showCmp){el.style.display="none";el.innerHTML="";return;}
+  var el=document.getElementById("compare"),btn=document.getElementById("cmpbtn");
+  btn.style.display=DS?"inline-block":"none";
+  btn.className="chip"+(showCmp?" on":"");
+  if(!DS||!showCmp){el.style.display="none";el.innerHTML="";return;}
   var rows="",n={ok:0,warn:0,approx:0,mismatch:0,none:0};
-  var list=T.courses.filter(function(c){return c.no!==3});
+  var list=courses().filter(function(c){return !(DS.id==="seoul"&&c.no===3)});
   list.forEach(function(c){
     var k=cmp(c);n[k.kind]=(n[k.kind]||0)+1;
-    var lab=c.no===2?"2+3코스(합산)":(c.no+"코스 "+c.name);
+    var lab=(DS.id==="seoul"&&c.no===2)?"2+3코스(합산)":(c.no+"코스 "+c.name);
     rows+='<tr class="'+k.cls+'" data-no="'+c.no+'"><td>'+lab+'</td><td>'+f1(k.off!=null?k.off:c.km)+'</td><td>'+(k.map!=null?f1(k.map):"-")+'</td><td>'+(k.diff!=null?sgn(f1(k.diff)*1===0?0:f1(k.diff))+" ("+sgn(k.pct)+"%)":"-")+'</td><td>'+k.badge+'</td></tr>';
   });
   el.style.display="block";
   el.innerHTML='<div class="cmphead">공식 거리 vs 지도 거리 대조 <span class="x" id="cmpclose">닫기 ✕</span></div>'+
    '<div class="cmpsum">판정 기준: 차이 ±'+TH+'% 이내면 일치 · 일치 '+n.ok+' / 확인필요 '+n.warn+' / 근사선 '+n.approx+' / 노선 불일치 '+n.mismatch+'</div>'+
    '<table class="cmp"><thead><tr><th>코스</th><th>공식 km</th><th>지도 km</th><th>차이</th><th>판정</th></tr></thead><tbody>'+rows+'</tbody></table>'+
-   '<div class="cmpnote">· 공식: 서울둘레길 누리집·숲나들e 안내거리 / 지도: OpenStreetMap 경로를 직접 합산한 거리<br>· 2·3코스는 지도 자료가 구 노선이라 개별 비교가 불가능해 합산으로만 비교합니다.<br>· 14코스는 직접 그린 근사선이라 길이가 비슷해도 검증된 경로가 아닙니다.</div>';
+   '<div class="cmpnote">· 공식: '+(DS.id==="seoul"?"서울둘레길 누리집·숲나들e 안내거리 / 지도: OpenStreetMap 경로를 직접 합산한 거리":"경기둘레길 누리집 안내거리 / 지도: 같은 누리집의 노선 좌표를 직접 합산한 거리")+(DS.id==="seoul"?"<br>· 2·3코스는 지도 자료가 구 노선이라 개별 비교가 불가능해 합산으로만 비교합니다.<br>· 14코스는 직접 그린 근사선이라 길이가 비슷해도 검증된 경로가 아닙니다.":"")+'</div>';
   document.getElementById("cmpclose").onclick=function(){showCmp=false;renderCompare();};
   Array.prototype.forEach.call(el.querySelectorAll("tbody tr"),function(tr){tr.onclick=function(){selectCourse(+tr.getAttribute("data-no"))};});
 }
@@ -115,38 +144,40 @@ function dashed(path,color,opacity,scale,rep){
     icons:[{icon:{path:"M 0,-1 0,1",strokeOpacity:opacity,strokeColor:color,scale:scale},offset:"0",repeat:rep||"12px"}]});
   lines.push(l);return l;
 }
+function clearLabels(){labels.forEach(function(l){l.setMap(null)});labels=[];}
 function clearMap(){
   lines.forEach(function(l){l.setMap(null)});lines=[];
   flagMarkers.forEach(function(m){m.setMap(null)});flagMarkers=[];
   clearLabels();
 }
-function clearLabels(){labels.forEach(function(l){l.setMap(null)});labels=[];}
 function flagVisible(f){
   if(f.base) return true;
   var a=course(f.arrive),d=course(f.depart);
   return (a&&visible(a))||(d&&visible(d));
 }
+function dist(a,b){var R=6371008.8,r=Math.PI/180,x=Math.sin((b[0]-a[0])*r/2),y=Math.sin((b[1]-a[1])*r/2);var h=x*x+Math.cos(a[0]*r)*Math.cos(b[0]*r)*y*y;return 2*R*Math.asin(Math.sqrt(h));}
+function startPos(no){var f=flags().filter(function(x){return x.depart===no&&x.pos})[0];return f?f.pos:null}
+function endPos(no){var f=flags().filter(function(x){return x.arrive===no&&x.pos})[0];return f?f.pos:null}
 function drawAll(){
   if(!map) return; clearMap();
-  T.courses.forEach(function(c){
+  if(!DS) return;
+  courses().forEach(function(c){
     if(!visible(c)||!c.path) return;
-    var isSel=sel===c.no,dim=(sel&&!isSel),cc=col(c.no);
-    if(done[c.no]){lines.push(new google.maps.Polyline({map:map,path:latlngs(c.path),strokeColor:"#000",strokeOpacity:dim?0.15:0.4,strokeWeight:(isSel?8:5)+5,zIndex:0}));}
+    var isSel=sel===c.no,dim=(sel&&!isSel),cc=DS.color(c),w=DS.id==="gyeonggi"?4:5;
+    if(done[c.no]){lines.push(new google.maps.Polyline({map:map,path:latlngs(c.path),strokeColor:"#000",strokeOpacity:dim?0.15:0.4,strokeWeight:(isSel?8:w)+5,zIndex:0}));}
     var l;
     if(c.approx){l=dashed(c.path,cc,dim?0.35:0.95,isSel?4:3,"11px");}
-    else{l=new google.maps.Polyline({map:map,path:latlngs(c.path),strokeColor:cc,strokeOpacity:dim?0.3:0.95,strokeWeight:isSel?8:5,zIndex:isSel?10:1});lines.push(l);}
+    else{l=new google.maps.Polyline({map:map,path:latlngs(c.path),strokeColor:cc,strokeOpacity:dim?0.3:0.95,strokeWeight:isSel?8:w,zIndex:isSel?10:1});lines.push(l);}
     l.addListener("click",function(){selectCourse(c.no)});
   });
-  if(T.courses.some(function(c){return visible(c)&&is23(c.no)})&&T.combined23){
-    var on=is23(sel);dashed(T.combined23.path,"#666",on?1:0.8,on?4:3,"12px");
-  }
-  // 선택 코스: 수서역 ↔ 출발/도착 연결선(직선 표시)
+  var cb=DS.d.combined23;
+  if(cb&&courses().some(function(c){return visible(c)&&is23(c.no)})){var on=is23(sel);dashed(cb.path,"#666",on?1:0.8,on?4:3,"12px");}
   if(sel&&base){
-    var c=course(sel),cc=col(sel),s=startPos(sel),e=endPos(sel);
-    if(s&&dist(base,s)>150) dashed([base,s],cc,0.9,2,"7px");
-    if(e&&dist(base,e)>150) dashed([e,base],cc,0.9,2,"7px");
+    var cc2=col(sel),s=startPos(sel),e=endPos(sel);
+    if(s&&dist(base,s)>150) dashed([base,s],cc2,0.9,2,"7px");
+    if(e&&dist(base,e)>150) dashed([e,base],cc2,0.9,2,"7px");
   }
-  T.flags.forEach(function(f){
+  flags().forEach(function(f){
     if(!f.pos||!flagVisible(f)) return;
     var relevant=!sel||f.base||f.arrive===sel||f.depart===sel;
     var m=new google.maps.Marker({map:map,position:{lat:f.pos[0],lng:f.pos[1]},title:f.name,icon:flagSvg(f.base?"#e8590c":col(f.depart),!!f.base),zIndex:f.base?100:50,opacity:relevant?(f.approx?0.7:1):0.4});
@@ -155,12 +186,10 @@ function drawAll(){
   });
   drawLabels();
 }
-function dist(a,b){var R=6371008.8,r=Math.PI/180,x=Math.sin((b[0]-a[0])*r/2),y=Math.sin((b[1]-a[1])*r/2);var h=x*x+Math.cos(a[0]*r)*Math.cos(b[0]*r)*y*y;return 2*R*Math.asin(Math.sqrt(h));}
-function startPos(no){var f=T.flags.filter(function(x){return x.depart===no&&x.pos})[0];return f?f.pos:null}
-function endPos(no){var f=T.flags.filter(function(x){return x.arrive===no&&x.pos})[0];return f?f.pos:null}
 function chip(no,txt,strong){return '<div class="bl'+(strong?" st":"")+'"><i style="background:'+col(no)+'"></i>'+(strong?"▶ ":"")+no+'코스 '+txt+'</div>';}
 function bubbleHtml(f,compact){
-  if(compact){return '<div class="bl cp"><i style="background:'+col(f.arrive)+'"></i>'+f.arrive+'코스 도착<br><i style="background:'+col(f.depart)+'"></i>'+f.depart+'코스 출발</div>';}
+  if(f.base&&!f.arrive) return '<div class="bt">'+f.name+' · 출발·귀환 기준</div>';
+  if(compact) return '<div class="bl cp"><i style="background:'+col(f.arrive)+'"></i>'+f.arrive+'코스 도착<br><i style="background:'+col(f.depart)+'"></i>'+f.depart+'코스 출발</div>';
   var h='<div class="bt">'+f.name+(f.base?" · 출발·귀환 기준":"")+'</div>';
   var A=chip(f.arrive,"도착",sel===f.arrive),D=chip(f.depart,"출발",sel===f.depart);
   h+=(sel===f.depart)?(D+A):(A+D);
@@ -169,40 +198,61 @@ function bubbleHtml(f,compact){
 }
 function drawLabels(){
   clearLabels();
-  if(!map||!Label) return;
+  if(!map||!Label||!DS) return;
   var z=map.getZoom(),compact=(!sel&&z<12);
-  T.flags.forEach(function(f){
+  flags().forEach(function(f){
     if(!f.pos||!flagVisible(f)) return;
     var rel=!sel||f.base||f.arrive===sel||f.depart===sel;
     if(!rel) return;
+    if(!f.base&&!sel&&z<DS.minZ) return;
     var full=f.base||!compact;
     var l=new Label(f.pos,bubbleHtml(f,!full),f.base?"#e8590c":col(sel&&f.arrive===sel?f.arrive:f.depart),f.base?-46:-36);
     l.setMap(map);labels.push(l);
   });
-  if(T.combined23&&T.courses.some(function(c){return visible(c)&&is23(c.no)})){
-    var b=T.combined23,m=b.path[Math.floor(b.path.length/2)],d=+(b.osmKm-b.officialKm).toFixed(1),p=Math.round(d/b.officialKm*100);
-    var lr=new Label(m,'<div class="bt">2·3코스 통합 참고선 (구 노선)</div><div class="bl">지도 '+f1(b.osmKm)+'km vs 공식 합 '+f1(b.officialKm)+'km</div><div class="bl st">차이 '+sgn(d)+'km ('+sgn(p)+'%) · 실제 노선 아님</div>',"#666",-14);
+  var cb=DS.d.combined23;
+  if(cb&&courses().some(function(c){return visible(c)&&is23(c.no)})){
+    var m=cb.path[Math.floor(cb.path.length/2)],d=+(cb.osmKm-cb.officialKm).toFixed(1),p=Math.round(d/cb.officialKm*100);
+    var lr=new Label(m,'<div class="bt">2·3코스 통합 참고선 (구 노선)</div><div class="bl">지도 '+f1(cb.osmKm)+'km vs 공식 합 '+f1(cb.officialKm)+'km</div><div class="bl st">차이 '+sgn(d)+'km ('+sgn(p)+'%) · 실제 노선 아님</div>',"#666",-14);
     lr.setMap(map);labels.push(lr);
   }
-  if(sel&&base){ // 연결선 중간 말풍선(이동시간)
-    var c=course(sel),a=c.accessMin,s=startPos(sel),e=endPos(sel);
+  if(sel&&base){
+    var c=course(sel),a=c.accessMin,s=startPos(sel),e=endPos(sel),nt=DS.id==="seoul"?"추정":"개략 추정";
     function mid(p,q){return [(p[0]+q[0])/2,(p[1]+q[1])/2]}
-    if(s&&dist(base,s)>150){var l1=new Label(mid(base,s),'<div class="bl">수서역 → '+c.no+'코스 출발<br>약 '+a[0]+'분(추정·직선 표시)</div>',col(sel),0,true);l1.setMap(map);labels.push(l1);}
-    if(e&&dist(base,e)>150){var l2=new Label(mid(base,e),'<div class="bl">'+c.no+'코스 도착 → 수서역<br>약 '+a[1]+'분(추정·직선 표시)</div>',col(sel),0,true);l2.setMap(map);labels.push(l2);}
+    if(s&&dist(base,s)>150){var l1=new Label(mid(base,s),'<div class="bl">수서역 → '+c.no+'코스 출발<br>약 '+a[0]+'분('+nt+'·직선 표시)</div>',DS.color(c),0,true);l1.setMap(map);labels.push(l1);}
+    if(e&&dist(base,e)>150){var l2=new Label(mid(base,e),'<div class="bl">'+c.no+'코스 도착 → 수서역<br>약 '+a[1]+'분('+nt+'·직선 표시)</div>',DS.color(c),0,true);l2.setMap(map);labels.push(l2);}
   }
 }
 function fit(points){
   var b=new google.maps.LatLngBounds();points.forEach(function(p){b.extend({lat:p[0],lng:p[1]})});map.fitBounds(b,60);
 }
+function fitAll(){
+  var all=[];courses().forEach(function(c){if(c.path&&visible(c))all=all.concat(c.path)});
+  if(DS.d.combined23)all=all.concat(DS.d.combined23.path);
+  if(base)all.push(base);
+  if(all.length)fit(all);
+}
 function selectCourse(no){
   sel=no;renderAll();
   var c=course(no),pts=[];
-  if(c.path)pts=c.path.slice();else if(is23(no)&&T.combined23)pts=T.combined23.path.slice();
+  if(c.path)pts=c.path.slice();else if(is23(no)&&DS.d.combined23)pts=DS.d.combined23.path.slice();
   var s=startPos(no),e=endPos(no);
   if(s)pts.push(s);if(e)pts.push(e);if(base&&(s||e))pts.push(base);
   if(pts.length)fit(pts);
 }
-function renderAll(){renderList();renderProgress();renderCompare();renderDetail();drawAll();}
+function renderAll(){renderRegions();renderList();renderProgress();renderCompare();renderDetail();drawAll();}
+function setRegion(r){
+  region=r;DS=DSET[r]||null;sel=null;filterIdx=0;showCmp=false;
+  loadDone();
+  var bf=DS?flags().filter(function(f){return f.base})[0]:null;base=bf?bf.pos:null;
+  document.getElementById("legend").innerHTML=DS?DS.legend:"";
+  document.getElementById("foot").innerHTML=DS?DS.foot:"";
+  renderChips();renderAll();
+  if(map){
+    if(DS) fitAll();
+    else{var cfg=REGIONS.filter(function(x){return x[0]===r})[0][1];map.setCenter({lat:cfg.c[0],lng:cfg.c[1]});map.setZoom(cfg.z);}
+  }
+  var sh=document.getElementById("sheet");if(sh)sh.scrollTop=0;
+}
 function defineLabel(){
   function L(pos,html,color,offY,mid){google.maps.OverlayView.call(this);this.pos=pos;this.html=html;this.color=color;this.offY=offY||0;this.mid=!!mid;this.div=null;}
   L.prototype=Object.create(google.maps.OverlayView.prototype);
@@ -215,9 +265,8 @@ window.initMap=function(){
   document.getElementById("maperr").style.display="none";
   map=new google.maps.Map(document.getElementById("map"),{center:{lat:37.55,lng:126.99},zoom:11,gestureHandling:"greedy",mapTypeControl:false,streetViewControl:false,fullscreenControl:false});
   info=new google.maps.InfoWindow();Label=defineLabel();
-  var bf=T.flags.filter(function(f){return f.base})[0];base=bf?bf.pos:null;
-  var all=[];T.courses.forEach(function(c){if(c.path)all=all.concat(c.path)});if(T.combined23)all=all.concat(T.combined23.path);fit(all);
   map.addListener("zoom_changed",function(){drawLabels()});
+  if(DS) fitAll();
   drawAll();
 };
 window.gm_authFailure=function(){var e=document.getElementById("maperr");e.style.display="flex";e.textContent="지도 인증 실패 — 구글맵 키의 허용 주소(yjjn2005.github.io)에서 열어야 합니다.";};
@@ -229,8 +278,7 @@ function loadMaps(){
   s.onerror=function(){document.getElementById("maperr").textContent="구글맵 스크립트를 불러오지 못했습니다(네트워크 확인).";};
   document.head.appendChild(s);
 }
-document.getElementById("foot").innerHTML="모든 일정은 수서역 출발·귀환 기준. 경로: OpenStreetMap 기여자(ODbL) · 거리·난이도: 서울둘레길 누리집·숲나들e · 수서역 이동시간은 지하철 노선 기준 추정치(±15분), 지도의 수서역 연결선은 직선 표시(실제 경로 아님).<br>2·3코스는 개별 경로 없이 구 노선 기준 통합 참고선만 표시(새 노선과 다름). 14코스는 안양천 중심선과 한강변을 이은 근사선. 근사 표시: 상계동 나들이철쭉동산(2·3코스 경계)은 공식 거리 비율로 추정한 위치. 거리 대조표에서 공식·지도 거리 차이를 확인할 수 있습니다. 미확인: "+T.unknown.join(", ")+".";
 document.getElementById("cmpbtn").onclick=function(){showCmp=!showCmp;renderCompare();if(showCmp)document.getElementById("sheet").scrollTop=0;};
-document.getElementById("legend").innerHTML='<span><b class="ln"></b> 실선: 지도 경로</span><span><b class="ln dash"></b> 색 점선: 근사선(14코스)</span><span><b class="ln dash gr"></b> 회색 점선: 2·3코스 구 노선 참고선(실제 아님)</span>';
-renderChips();renderAll();loadMaps();
+setRegion("서울");
+loadMaps();
 })();
