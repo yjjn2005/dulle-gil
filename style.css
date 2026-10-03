@@ -1,0 +1,24 @@
+:root{--bg:#fff;--fg:#1b1f23;--mut:#5b6670;--line:#e3e7ea;--green:#2e9e5b;--orange:#f08a00;--red:#d93636;--blue:#1f4e9c}
+@media(prefers-color-scheme:dark){:root{--bg:#14181c;--fg:#eef1f3;--mut:#9aa6b0;--line:#2a3138}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{font-family:-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;background:var(--bg);color:var(--fg);font-size:17px;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+header{padding:10px 14px 6px}
+.title{font-size:20px;font-weight:700}.title small{font-size:13px;font-weight:400;color:var(--mut);margin-left:6px}
+.progress{font-size:14px;color:var(--mut);margin:4px 0}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0}
+.chip{flex:0 0 auto;padding:9px 16px;border:1px solid var(--line);border-radius:22px;background:var(--bg);color:var(--fg);font-size:16px}
+.chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+#map{flex:1 1 45%;min-height:260px;position:relative}
+.maperr{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:var(--mut)}
+#sheet{flex:1 1 40%;overflow:auto;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.handle{position:sticky;top:0;background:var(--bg);padding:10px 14px;font-weight:700;border-bottom:1px solid var(--line);z-index:2}
+.card{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.card.sel{background:rgba(31,78,156,.09)}
+.num{flex:0 0 38px;height:38px;border-radius:50%;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
+.info{flex:1;min-width:0}.nm{font-weight:700}.sub{font-size:14px;color:var(--mut);margin-top:2px}
+.tag{display:inline-block;font-size:12px;padding:2px 7px;border-radius:10px;margin-right:4px;border:1px solid var(--line);color:var(--mut)}
+.tag.ok{color:var(--green);border-color:var(--green)}.tag.warn{color:var(--red);border-color:var(--red)}.tag.est{color:var(--orange);border-color:var(--orange)}
+.done{flex:0 0 auto;align-self:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font-size:15px}
+.done.on{background:var(--green);color:#fff;border-color:var(--green)}
+.foot{font-size:12px;color:var(--mut);padding:10px 14px}
+@media(min-width:900px){body{flex-direction:row;flex-wrap:wrap}header{width:100%}#map{flex:1 1 60%}#sheet{flex:1 1 40%;border-top:0;border-left:1px solid var(--line)}}
