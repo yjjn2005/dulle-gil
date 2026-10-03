@@ -113,7 +113,7 @@ function drawAll(){
   T.flags.forEach(function(f){
     if(!f.pos||!flagVisible(f)) return;
     var relevant=!sel||f.base||f.arrive===sel||f.depart===sel;
-    var m=new google.maps.Marker({map:map,position:{lat:f.pos[0],lng:f.pos[1]},title:f.name,icon:flagSvg(f.base?"#e8590c":col(f.depart),!!f.base),zIndex:f.base?100:50,opacity:relevant?1:0.45});
+    var m=new google.maps.Marker({map:map,position:{lat:f.pos[0],lng:f.pos[1]},title:f.name,icon:flagSvg(f.base?"#e8590c":col(f.depart),!!f.base),zIndex:f.base?100:50,opacity:relevant?(f.approx?0.7:1):0.4});
     m.addListener("click",function(){info.setContent(bubbleHtml(f,false));info.open(map,m)});
     flagMarkers.push(m);
   });
@@ -122,22 +122,25 @@ function drawAll(){
 function dist(a,b){var R=6371008.8,r=Math.PI/180,x=Math.sin((b[0]-a[0])*r/2),y=Math.sin((b[1]-a[1])*r/2);var h=x*x+Math.cos(a[0]*r)*Math.cos(b[0]*r)*y*y;return 2*R*Math.asin(Math.sqrt(h));}
 function startPos(no){var f=T.flags.filter(function(x){return x.depart===no&&x.pos})[0];return f?f.pos:null}
 function endPos(no){var f=T.flags.filter(function(x){return x.arrive===no&&x.pos})[0];return f?f.pos:null}
-function chip(no,txt,strong){return '<div class="bl'+(strong?" st":"")+'"><i style="background:'+col(no)+'"></i>'+no+'코스 '+txt+'</div>';}
+function chip(no,txt,strong){return '<div class="bl'+(strong?" st":"")+'"><i style="background:'+col(no)+'"></i>'+(strong?"▶ ":"")+no+'코스 '+txt+'</div>';}
 function bubbleHtml(f,compact){
+  if(compact){return '<div class="bl cp"><i style="background:'+col(f.arrive)+'"></i>'+f.arrive+'코스 도착<br><i style="background:'+col(f.depart)+'"></i>'+f.depart+'코스 출발</div>';}
   var h='<div class="bt">'+f.name+(f.base?" · 출발·귀환 기준":"")+'</div>';
-  h+=chip(f.arrive,"도착",sel===f.arrive)+chip(f.depart,"출발",sel===f.depart);
+  var A=chip(f.arrive,"도착",sel===f.arrive),D=chip(f.depart,"출발",sel===f.depart);
+  h+=(sel===f.depart)?(D+A):(A+D);
   if(f.note) h+='<div class="bn">'+f.note+'</div>';
   return h;
 }
 function drawLabels(){
   clearLabels();
   if(!map||!Label) return;
-  var z=map.getZoom(),show=sel||z>=12;
+  var z=map.getZoom(),compact=(!sel&&z<12);
   T.flags.forEach(function(f){
     if(!f.pos||!flagVisible(f)) return;
     var rel=!sel||f.base||f.arrive===sel||f.depart===sel;
-    if(!(f.base||(show&&rel))) return;
-    var l=new Label(f.pos,bubbleHtml(f,false),f.base?"#e8590c":col(f.depart),f.base?-46:-36);
+    if(!rel) return;
+    var full=f.base||!compact;
+    var l=new Label(f.pos,bubbleHtml(f,!full),f.base?"#e8590c":col(sel&&f.arrive===sel?f.arrive:f.depart),f.base?-46:-36);
     l.setMap(map);labels.push(l);
   });
   if(sel&&base){ // 연결선 중간 말풍선(이동시간)
@@ -185,6 +188,6 @@ function loadMaps(){
   s.onerror=function(){document.getElementById("maperr").textContent="구글맵 스크립트를 불러오지 못했습니다(네트워크 확인).";};
   document.head.appendChild(s);
 }
-document.getElementById("foot").innerHTML="모든 일정은 수서역 출발·귀환 기준. 경로: OpenStreetMap 기여자(ODbL) · 거리·난이도: 서울둘레길 누리집·숲나들e · 수서역 이동시간은 지하철 노선 기준 추정치(±15분), 지도의 수서역 연결선은 직선 표시(실제 경로 아님).<br>2·3코스는 개별 경로 없이 구 노선 기준 통합 참고선만 표시(새 노선과 다름). 14코스는 안양천 중심선과 한강변을 이은 근사선. 미확인 위치: "+T.unknown.join(", ")+".";
+document.getElementById("foot").innerHTML="모든 일정은 수서역 출발·귀환 기준. 경로: OpenStreetMap 기여자(ODbL) · 거리·난이도: 서울둘레길 누리집·숲나들e · 수서역 이동시간은 지하철 노선 기준 추정치(±15분), 지도의 수서역 연결선은 직선 표시(실제 경로 아님).<br>2·3코스는 개별 경로 없이 구 노선 기준 통합 참고선만 표시(새 노선과 다름). 14코스는 안양천 중심선과 한강변을 이은 근사선. 근사 표시: 상계동 나들이철쭉동산(2·3코스 경계)은 공식 거리 비율로 추정한 위치. 미확인: "+T.unknown.join(", ")+".";
 renderChips();renderAll();loadMaps();
 })();
