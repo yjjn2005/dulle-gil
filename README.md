@@ -26,3 +26,7 @@
 - config.js 의 `window.ODSAY_API_KEY` 에 ODsay 키(플랫폼 URL: https://yjjn2005.github.io)를 넣으면 코스 상세의 "길찾기 API로 확인"과 상단 "대중교통 이동시간 확인(ODsay)" 버튼이 동작합니다.
 - 조회 결과는 브라우저에 저장되고, access-data.js 에 넣어 두면 모든 기기에서 바로 표시됩니다.
 - ODsay 결과는 조회 시각의 시간표 기준이며, 대중교통 경로가 없는 구간은 "경로 없음"으로 표시합니다(택시·자가용 필요).
+
+## 수서역 이동시간 일괄 조회
+- `python3 tools/fetch_access.py` : 서울 21·경기 60코스의 수서역 ↔ 출발·도착 160구간을 ODsay로 조회해 access-data.js 에 저장
+- 일일 호출 한도(429)가 나오면 즉시 중단하고 다음 실행 때 이어서 조회합니다. (같은 키를 쓰는 route-calc 앱과 한도를 함께 씁니다)

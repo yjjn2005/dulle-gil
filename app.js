@@ -65,6 +65,7 @@ function odsayCall(from,to){
   return fetch(url).then(function(r){return r.json()}).then(function(j){
     if(j.error){
       var e=j.error,e0=Array.isArray(e)?e[0]:e,code=String((e0&&(e0.code))||""),msg=(e0&&(e0.msg||e0.message))||"";
+      if(code==="429"||/quota/i.test(msg)) return {err:"quota",msg:msg};
       if(code==="-98") return {err:"near"};
       if(code==="-99"||code==="-9"||code==="-3") return {err:"none"};
       return {err:"api",code:code,msg:msg};
@@ -95,6 +96,7 @@ function runLegs(list,force){
     setAccMsg("ODsay 길찾기 조회 중 "+(i+1)+"/"+tasks.length+" …");
     var t=tasks[i++];
     odsayCall(t[1][0],t[1][1]).then(function(res){
+      if(res.err==="quota"){accBusy=false;saveAcc();setAccMsg("ODsay 일일 호출 한도를 초과했습니다(키 단위 한도로, 같은 키를 쓰는 가는길 계산 앱과 합산됩니다). 한도는 매일 초기화되니 내일 다시 눌러 주세요. 이미 조회된 구간은 저장되어 있습니다.");renderAll();return;}
       ACC[t[0]]=res;
       if(res.err==="api"&&/key|auth|인증|권한|ApiKey/i.test((res.msg||"")+(res.code||""))){accBusy=false;saveAcc();setAccMsg("키 인증 실패: "+(res.msg||res.code)+" — ODsay 콘솔에서 키와 허용 URL(https://yjjn2005.github.io)을 확인하세요.");renderAll();return;}
       if(res.err==="api") fail++;
